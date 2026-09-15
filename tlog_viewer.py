@@ -9,6 +9,7 @@ import threading
 from datetime import datetime
 
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import ttk, filedialog, messagebox
 
 import matplotlib
@@ -24,6 +25,26 @@ SKIP_FIELDS = {"mavpackettype"}
 MAX_TABLE_ROWS = 20000
 MAV_CMD_ENUM = mavutil.mavlink.enums.get("MAV_CMD", {})
 
+# Column auto-sizing: measure header + a sample of cell text and size each
+# column to fit, clamped to a sane range so one huge value (e.g. the raw
+# "fields" dict repr in the All-types view) can't blow up the whole table
+# — the horizontal scrollbar (plus Shift+wheel) handles anything still cut
+# off.
+COLUMN_WIDTH_SAMPLE_ROWS = 500
+COLUMN_HEADER_PAD = 16
+COLUMN_CELL_PAD = 14
+MIN_COLUMN_WIDTH = 40
+MAX_COLUMN_WIDTH = 400
+
+
+def _humanize_mav_cmd(enum_name):
+    """"MAV_CMD_NAV_TAKEOFF" -> "Nav Takeoff" — drop the redundant prefix
+    every MAV_CMD shares and title-case the rest so it reads as a label
+    instead of a wire-format constant name."""
+    if enum_name.startswith("MAV_CMD_"):
+        enum_name = enum_name[len("MAV_CMD_"):]
+    return enum_name.replace("_", " ").title()
+
 
 class TlogData:
     """Holds messages decoded from a single tlog file.
@@ -33,8 +54,9 @@ class TlogData:
     `mavutil.mode_string_v10`, so it shows up as a normal column/search
     target alongside the raw `custom_mode` integer. Any entry with a
     "command" field (COMMAND_LONG, COMMAND_INT, COMMAND_ACK, MISSION_ITEM,
-    ...) gets a synthetic "command_name" field (e.g. "MAV_CMD_NAV_TAKEOFF")
-    looked up from the MAV_CMD enum, alongside the raw numeric id.
+    ...) gets a synthetic "command_name" field looked up from the MAV_CMD
+    enum and humanized via `_humanize_mav_cmd` (e.g. "MAV_CMD_NAV_TAKEOFF"
+    -> "Nav Takeoff"), alongside the raw numeric id.
     """
 
     def __init__(self):
@@ -70,7 +92,9 @@ class TlogData:
             cmd_id = fields.get("command")
             if isinstance(cmd_id, int):
                 cmd_enum = MAV_CMD_ENUM.get(cmd_id)
-                fields["command_name"] = cmd_enum.name if cmd_enum else f"MAV_CMD({cmd_id})"
+                fields["command_name"] = (
+                    _humanize_mav_cmd(cmd_enum.name) if cmd_enum else f"Unknown ({cmd_id})"
+                )
             sysid = msg.get_srcSystem()
             entry = {
                 "time": ts, "type": msg_type, "fields": fields,
@@ -129,7 +153,11 @@ class MessagesTab(ttk.Frame):
     a synthetic "mode" field showing the flight mode as plain text (e.g.
     "STABILIZE") instead of just the raw custom_mode integer, and any row
     with a "command" field (COMMAND_LONG, COMMAND_INT, COMMAND_ACK, ...)
-    gets a synthetic "command_name" field (e.g. "MAV_CMD_NAV_TAKEOFF")."""
+    gets a synthetic "command_name" field as a readable label (e.g.
+    "Nav Takeoff"), filterable via its own **Command** dropdown. Columns
+    auto-size to fit their content (header + a sample of cell text, see
+    `_compute_column_widths`), and the table scrolls horizontally (drag
+    the scrollbar or Shift+wheel) for anything still too wide to fit."""
 
     def __init__(self, parent, app):
         super().__init__(parent)
@@ -166,6 +194,12 @@ class MessagesTab(ttk.Frame):
         self.direction_combo.pack(side="left", padx=5)
         self.direction_combo.bind("<<ComboboxSelected>>", lambda e: self.apply_filter())
 
+        ttk.Label(controls, text="Command:").pack(side="left", padx=(15, 0))
+        self.command_var = tk.StringVar(value="All")
+        self.command_combo = ttk.Combobox(controls, textvariable=self.command_var, state="readonly", width=32)
+        self.command_combo.pack(side="left", padx=5)
+        self.command_combo.bind("<<ComboboxSelected>>", lambda e: self.apply_filter())
+
         ttk.Label(controls, text="Outgoing sysid:").pack(side="left", padx=(15, 0))
         self.outgoing_sysid_var = tk.StringVar()
         self.outgoing_combo = ttk.Combobox(
@@ -201,15 +235,31 @@ class MessagesTab(ttk.Frame):
 
         self.tree.bind("<Control-c>", self.copy_selected_rows)
         self.tree.bind("<Button-3>", self._show_context_menu)
+        # Horizontal scroll for long rows (in addition to dragging the
+        # scrollbar): Shift+wheel on Windows/macOS, Shift+Button-4/5 on X11.
+        self.tree.bind("<Shift-MouseWheel>", self._on_shift_mousewheel)
+        self.tree.bind("<Shift-Button-4>", lambda e: self.tree.xview_scroll(-2, "units"))
+        self.tree.bind("<Shift-Button-5>", lambda e: self.tree.xview_scroll(2, "units"))
         self.context_menu = tk.Menu(self.tree, tearoff=0)
         self.context_menu.add_command(label="Copy row(s)", command=self.copy_selected_rows)
         self.context_menu.add_command(label="Copy cell", command=self.copy_clicked_cell)
+
+    def _on_shift_mousewheel(self, event):
+        step = -2 if event.delta > 0 else 2
+        self.tree.xview_scroll(step, "units")
+        return "break"
 
     def on_data_loaded(self):
         data = self.app.data
         types = ["All"] + sorted(data.by_type.keys())
         self.type_combo["values"] = types
         self.type_var.set("All")
+
+        command_names = sorted({
+            e["fields"]["command_name"] for e in data.messages if "command_name" in e["fields"]
+        })
+        self.command_combo["values"] = ["All"] + command_names
+        self.command_var.set("All")
 
         self.outgoing_combo["values"] = [str(s) for s in data.sysids]
         if data.guessed_outgoing_sysid is not None:
@@ -225,6 +275,7 @@ class MessagesTab(ttk.Frame):
         self.search_var.set("")
         self.type_var.set("All")
         self.direction_var.set("All")
+        self.command_var.set("All")
         self.apply_filter()
 
     def apply_filter(self):
@@ -261,6 +312,10 @@ class MessagesTab(ttk.Frame):
         elif direction_filter == "Incoming":
             entries = [e for e in entries if direction_of(e) == "IN"]
 
+        command_filter = self.command_var.get()
+        if command_filter and command_filter != "All":
+            entries = [e for e in entries if e["fields"].get("command_name") == command_filter]
+
         if self.sort_column in columns:
             def sort_key(e):
                 if self.sort_column == "time":
@@ -279,22 +334,8 @@ class MessagesTab(ttk.Frame):
         else:
             self.sort_column = None
 
-        self.tree.delete(*self.tree.get_children())
-        self.tree["columns"] = columns
-        for c in columns:
-            heading = c
-            if c == self.sort_column:
-                heading += " ▼" if self.sort_reverse else " ▲"
-            self.tree.heading(c, text=heading, command=lambda c=c: self._on_header_click(c))
-            if c == "sysid":
-                width = 60
-            elif c == "type":
-                width = 200
-            else:
-                width = 120
-            self.tree.column(c, width=width, anchor="w")
-
         shown = entries[:MAX_TABLE_ROWS]
+        rows = []
         for e in shown:
             t = datetime.fromtimestamp(e["time"]).strftime("%H:%M:%S.%f")[:-3]
             direction = direction_of(e)
@@ -304,10 +345,41 @@ class MessagesTab(ttk.Frame):
                 row = [t, e["sysid"]] + [e["fields"].get(c, "") for c in columns[2:]]
             else:
                 row = [t, e["sysid"], e["type"], str(e["fields"])]
+            rows.append((row, tag))
+
+        self.tree.delete(*self.tree.get_children())
+        self.tree["columns"] = columns
+        col_widths = self._compute_column_widths(columns, rows)
+        for c, width in zip(columns, col_widths):
+            heading = c
+            if c == self.sort_column:
+                heading += " ▼" if self.sort_reverse else " ▲"
+            self.tree.heading(c, text=heading, command=lambda c=c: self._on_header_click(c))
+            self.tree.column(c, width=width, anchor="w")
+
+        for row, tag in rows:
             self.tree.insert("", "end", values=row, tags=tag)
 
         note = "" if len(entries) <= MAX_TABLE_ROWS else f" (showing first {MAX_TABLE_ROWS})"
         self.count_label.config(text=f"{len(entries)} messages{note}")
+
+    def _compute_column_widths(self, columns, rows):
+        """Minimal width per column that fits its header and a sample of
+        its cell text, clamped to [MIN_COLUMN_WIDTH, MAX_COLUMN_WIDTH].
+        Sampling (rather than every row) keeps this cheap on large logs;
+        anything a column ends up too narrow for is still reachable via
+        the horizontal scrollbar / Shift+wheel."""
+        font = tkfont.nametofont("TkDefaultFont")
+        sample = rows[:COLUMN_WIDTH_SAMPLE_ROWS]
+        widths = []
+        for i, c in enumerate(columns):
+            width = font.measure(str(c)) + COLUMN_HEADER_PAD
+            for row, _tag in sample:
+                cell_width = font.measure(str(row[i])) + COLUMN_CELL_PAD
+                if cell_width > width:
+                    width = cell_width
+            widths.append(min(max(width, MIN_COLUMN_WIDTH), MAX_COLUMN_WIDTH))
+        return widths
 
     def _on_header_click(self, col):
         if self.sort_column == col:

@@ -47,9 +47,11 @@ Open it from the app with **Open tlog...**.
     the loaded log).
   - Free-text search across all field values (case-insensitive substring
     match), combinable with the type filter.
-  - Table columns adapt to the selected message type's fields; the `type`
-    column (shown in the "All" view) is widened so full message type names
-    are readable without resizing.
+  - Table columns adapt to the selected message type's fields, and each
+    column auto-sizes to the minimal width that fits its header and
+    content (capped so one huge value can't blow up the whole table) —
+    drag the horizontal scrollbar, or hold Shift and scroll the mouse
+    wheel over the table, to read anything still cut off.
   - **Incoming/outgoing coloring and filtering** — rows are colored by
     direction, based on which sysid you tell it is "yours" via the
     **Outgoing sysid** dropdown (auto-guessed on load: prefers a
@@ -62,12 +64,14 @@ Open it from the app with **Open tlog...**.
     the decoded flight mode name (e.g. `STABILIZE`, `AUTO`, `RTL`) instead
     of just the raw `custom_mode` number; it's also searchable like any
     other field.
-  - **Command names as text** — any row with a `command` field
-    (`COMMAND_LONG`, `COMMAND_INT`, `COMMAND_ACK`, `MISSION_ITEM`, ...)
-    gets a `command_name` column showing the decoded `MAV_CMD_*` name
-    (e.g. `MAV_CMD_NAV_TAKEOFF`) instead of just the raw numeric id;
-    filter to a command type and/or search for a command name to find
-    specific commands.
+  - **Command names as text and a Command filter** — any row with a
+    `command` field (`COMMAND_LONG`, `COMMAND_INT`, `COMMAND_ACK`,
+    `MISSION_ITEM`, ...) gets a `command_name` column with a readable
+    label (e.g. `MAV_CMD_NAV_TAKEOFF` shows as "Nav Takeoff") instead of
+    just the raw numeric id. The **Command** dropdown (wide enough to show
+    full names) lists every distinct command seen in the log and filters
+    the table down to just that command, combinable with the other
+    filters and search.
   - **Sort by clicking a column header** — click again to reverse. Sorting
     combines with whatever filters are active.
   - **Copy values** — select row(s) and press Ctrl+C, or right-click for

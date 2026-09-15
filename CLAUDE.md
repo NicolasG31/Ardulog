@@ -27,29 +27,42 @@ just a fast decode-and-look tool.
     `fields` has an int `command` key (`COMMAND_LONG`, `COMMAND_INT`,
     `COMMAND_ACK`, `MISSION_ITEM`, ...) similarly gets a synthetic
     `command_name` field looked up from `mavutil.mavlink.enums["MAV_CMD"]`
-    (module-level `MAV_CMD_ENUM`), falling back to `f"MAV_CMD({id})"` for
-    an unrecognized id.
+    (module-level `MAV_CMD_ENUM`) and passed through `_humanize_mav_cmd`
+    (strips the `MAV_CMD_` prefix, title-cases the rest — e.g.
+    `"MAV_CMD_NAV_TAKEOFF"` → `"Nav Takeoff"`), falling back to
+    `f"Unknown ({id})"` for an unrecognized id.
   - `MessagesTab` — Treeview table, filter by message type + free-text
     search across all field values (substring, case-insensitive), plus a
     **Direction** dropdown (All/Outgoing/Incoming) that filters on the same
-    direction logic used for row coloring (see below). Caps display at
-    `MAX_TABLE_ROWS = 20000` for perf; full data is still in memory, just
-    not rendered. Rows are colored by direction (`outgoing`/`incoming`
-    Treeview tags → `OUTGOING_BG`/`INCOMING_BG`) based on comparing each
-    entry's `sysid` to the **Outgoing sysid** dropdown
-    (`outgoing_sysid_var`) — color is the only direction indicator in the
-    row itself (no separate `dir` text column; removed as redundant with
-    color plus the Direction filter). The `type` column (in the "All"
-    view) is fixed at width 200 (vs. 120 default, 60 for `sysid`) so full
-    message type names are readable without manual resizing. Clicking a
-    column header sorts the table by that column (`sort_column`/
-    `sort_reverse` state, applied in `apply_filter` after type/search/
-    direction filtering, before the `MAX_TABLE_ROWS` slice); click again to
-    reverse; switching to a message type whose columns don't include the
-    current sort column clears it. Ctrl+C or right-click → **Copy row(s)**
-    copies the current Treeview selection as tab-separated text (header +
-    rows) to the clipboard; right-click → **Copy cell** copies just the
-    cell under the click (via `tree.identify_row`/`identify_column`).
+    direction logic used for row coloring (see below) and a **Command**
+    dropdown (width 32, vs. 20 for Type) that filters on the humanized
+    `command_name` — its values are every distinct `command_name` seen
+    across `data.messages`, collected in `on_data_loaded` (not scoped to
+    the current type filter, so e.g. picking "Nav Takeoff" works from the
+    "All" view too). Caps display at `MAX_TABLE_ROWS = 20000` for perf;
+    full data is still in memory, just not rendered. Rows are colored by
+    direction (`outgoing`/`incoming` Treeview tags →
+    `OUTGOING_BG`/`INCOMING_BG`) based on comparing each entry's `sysid` to
+    the **Outgoing sysid** dropdown (`outgoing_sysid_var`) — color is the
+    only direction indicator in the row itself (no separate `dir` text
+    column; removed as redundant with color plus the Direction filter).
+    Column widths are computed per render by `_compute_column_widths`:
+    minimal width to fit each column's header plus a sample of its cell
+    text (`COLUMN_WIDTH_SAMPLE_ROWS = 500` rows, via
+    `tkfont.nametofont("TkDefaultFont").measure`), clamped to
+    `[MIN_COLUMN_WIDTH, MAX_COLUMN_WIDTH]` = `[40, 400]` px so one huge
+    value (e.g. the raw `fields` dict repr in the "All" view) can't blow up
+    the table — the horizontal scrollbar plus a `<Shift-MouseWheel>` /
+    `<Shift-Button-4/5>` binding on the tree (`_on_shift_mousewheel`)
+    covers whatever's still cut off. Clicking a column header sorts the
+    table by that column (`sort_column`/`sort_reverse` state, applied in
+    `apply_filter` after type/search/direction/command filtering, before
+    the `MAX_TABLE_ROWS` slice); click again to reverse; switching to a
+    message type whose columns don't include the current sort column
+    clears it. Ctrl+C or right-click → **Copy row(s)** copies the current
+    Treeview selection as tab-separated text (header + rows) to the
+    clipboard; right-click → **Copy cell** copies just the cell under the
+    click (via `tree.identify_row`/`identify_column`).
   - `PlotTab` — pick type+field, "Add series" to a list, "Plot" draws all
     added series on one matplotlib chart (`FigureCanvasTkAgg` + nav
     toolbar), x-axis is wall-clock time from each message's `_timestamp`.
