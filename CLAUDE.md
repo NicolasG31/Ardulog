@@ -34,35 +34,45 @@ just a fast decode-and-look tool.
   - `MessagesTab` — Treeview table, filter by message type + free-text
     search across all field values (substring, case-insensitive), plus a
     **Direction** dropdown (All/Outgoing/Incoming) that filters on the same
-    direction logic used for row coloring (see below) and a **Command**
-    dropdown (width 32, vs. 20 for Type) that filters on the humanized
-    `command_name` — its values are every distinct `command_name` seen
-    across `data.messages`, collected in `on_data_loaded` (not scoped to
-    the current type filter, so e.g. picking "Nav Takeoff" works from the
-    "All" view too). Caps display at `MAX_TABLE_ROWS = 20000` for perf;
-    full data is still in memory, just not rendered. Rows are colored by
-    direction (`outgoing`/`incoming` Treeview tags →
-    `OUTGOING_BG`/`INCOMING_BG`) based on comparing each entry's `sysid` to
-    the **Outgoing sysid** dropdown (`outgoing_sysid_var`) — color is the
-    only direction indicator in the row itself (no separate `dir` text
-    column; removed as redundant with color plus the Direction filter).
-    Column widths are computed per render by `_compute_column_widths`:
-    minimal width to fit each column's header plus a sample of its cell
-    text (`COLUMN_WIDTH_SAMPLE_ROWS = 500` rows, via
-    `tkfont.nametofont("TkDefaultFont").measure`), clamped to
-    `[MIN_COLUMN_WIDTH, MAX_COLUMN_WIDTH]` = `[40, 400]` px so one huge
-    value (e.g. the raw `fields` dict repr in the "All" view) can't blow up
-    the table — the horizontal scrollbar plus a `<Shift-MouseWheel>` /
-    `<Shift-Button-4/5>` binding on the tree (`_on_shift_mousewheel`)
-    covers whatever's still cut off. Clicking a column header sorts the
-    table by that column (`sort_column`/`sort_reverse` state, applied in
-    `apply_filter` after type/search/direction/command filtering, before
-    the `MAX_TABLE_ROWS` slice); click again to reverse; switching to a
-    message type whose columns don't include the current sort column
-    clears it. Ctrl+C or right-click → **Copy row(s)** copies the current
-    Treeview selection as tab-separated text (header + rows) to the
-    clipboard; right-click → **Copy cell** copies just the cell under the
-    click (via `tree.identify_row`/`identify_column`).
+    direction logic used for row coloring (see below). Filtering by
+    decoded command is folded into the same **Type** dropdown (width 32)
+    rather than a separate control: `on_data_loaded` appends one
+    `f"{COMMAND_FILTER_PREFIX}{command_name}"` entry (`COMMAND_FILTER_PREFIX
+    = "Command: "`) per distinct `command_name` seen across `data.messages`
+    after the real message types; `apply_filter` special-cases a selected
+    value starting with that prefix — entries become every message (across
+    all types) whose `command_name` matches, with the generic
+    time/sysid/type/fields columns (`per_type_columns = False`) since a
+    command can appear on more than one message type. Caps display at
+    `MAX_TABLE_ROWS = 20000` for perf; full data is still in memory, just
+    not rendered. Rows are colored by direction (`outgoing`/`incoming`
+    Treeview tags → `OUTGOING_BG`/`INCOMING_BG`) based on comparing each
+    entry's `sysid` to the **Outgoing sysid** dropdown
+    (`outgoing_sysid_var`) — color is the only direction indicator in the
+    row itself (no separate `dir` text column; removed as redundant with
+    color plus the Direction filter). Column widths are computed per
+    render by `_compute_column_widths`: exact width to fit each column's
+    header plus *every* currently-shown row's cell text (via
+    `tkfont.nametofont("TkDefaultFont").measure`), floored at
+    `MIN_COLUMN_WIDTH = 40` px and with **no** upper cap — and each column
+    is explicitly set `stretch=False` in `apply_filter`'s render loop. Both
+    pieces matter together: ttk's default `stretch=True` re-stretches
+    every column to fill the visible frame whenever their combined width
+    is narrower than that, which silently overrides a computed width *and*
+    leaves the horizontal scrollbar with no real range — so `stretch=False`
+    is what makes both "columns sized to content" and "scroll to read a
+    wide cell" actually true; the scrollbar plus a `<Shift-MouseWheel>` /
+    `<Shift-Button-4/5>` binding on the tree (`_on_shift_mousewheel`) is
+    how you reach a column (e.g. the raw `fields` dict repr in the "All"
+    view, which can be ~2000px wide) that doesn't fit the window. Clicking
+    a column header sorts the table by that column (`sort_column`/
+    `sort_reverse` state, applied in `apply_filter` after type/search/
+    direction filtering, before the `MAX_TABLE_ROWS` slice); click again to
+    reverse; switching to a message type whose columns don't include the
+    current sort column clears it. Ctrl+C or right-click → **Copy row(s)**
+    copies the current Treeview selection as tab-separated text (header +
+    rows) to the clipboard; right-click → **Copy cell** copies just the
+    cell under the click (via `tree.identify_row`/`identify_column`).
   - `PlotTab` — pick type+field, "Add series" to a list, "Plot" draws all
     added series on one matplotlib chart (`FigureCanvasTkAgg` + nav
     toolbar), x-axis is wall-clock time from each message's `_timestamp`.

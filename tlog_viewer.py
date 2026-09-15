@@ -25,16 +25,20 @@ SKIP_FIELDS = {"mavpackettype"}
 MAX_TABLE_ROWS = 20000
 MAV_CMD_ENUM = mavutil.mavlink.enums.get("MAV_CMD", {})
 
-# Column auto-sizing: measure header + a sample of cell text and size each
-# column to fit, clamped to a sane range so one huge value (e.g. the raw
-# "fields" dict repr in the All-types view) can't blow up the whole table
-# — the horizontal scrollbar (plus Shift+wheel) handles anything still cut
-# off.
-COLUMN_WIDTH_SAMPLE_ROWS = 500
+# Column auto-sizing: measure header + every currently-shown cell's text
+# and size each column to fit exactly (floored at MIN_COLUMN_WIDTH so an
+# all-empty column stays clickable) — no upper cap, so nothing is ever
+# truncated; a column wider than the window just means more to reach via
+# the horizontal scrollbar / Shift+wheel (columns are pinned to
+# stretch=False specifically so that scrolling has real range to work
+# with instead of Treeview re-stretching everything to fit the frame).
 COLUMN_HEADER_PAD = 16
 COLUMN_CELL_PAD = 14
 MIN_COLUMN_WIDTH = 40
-MAX_COLUMN_WIDTH = 400
+
+# Prefix marking a synthetic "filter by this decoded MAV_CMD" entry folded
+# into the Type dropdown, alongside the real message types.
+COMMAND_FILTER_PREFIX = "Command: "
 
 
 def _humanize_mav_cmd(enum_name):
@@ -154,10 +158,13 @@ class MessagesTab(ttk.Frame):
     "STABILIZE") instead of just the raw custom_mode integer, and any row
     with a "command" field (COMMAND_LONG, COMMAND_INT, COMMAND_ACK, ...)
     gets a synthetic "command_name" field as a readable label (e.g.
-    "Nav Takeoff"), filterable via its own **Command** dropdown. Columns
-    auto-size to fit their content (header + a sample of cell text, see
-    `_compute_column_widths`), and the table scrolls horizontally (drag
-    the scrollbar or Shift+wheel) for anything still too wide to fit."""
+    "Nav Takeoff"). Every distinct command_name is folded into the same
+    **Type** dropdown as a "Command: <name>" entry, so filtering to one
+    specific command is just another Type selection rather than a second
+    dropdown. Columns auto-size to fit their content (header + a sample of
+    cell text, see `_compute_column_widths`) and don't stretch to fill the
+    frame, so the table scrolls horizontally (drag the scrollbar or
+    Shift+wheel) for anything still too wide to fit."""
 
     def __init__(self, parent, app):
         super().__init__(parent)
@@ -173,7 +180,7 @@ class MessagesTab(ttk.Frame):
 
         ttk.Label(controls, text="Type:").pack(side="left")
         self.type_var = tk.StringVar(value="All")
-        self.type_combo = ttk.Combobox(controls, textvariable=self.type_var, state="readonly", width=20)
+        self.type_combo = ttk.Combobox(controls, textvariable=self.type_var, state="readonly", width=32)
         self.type_combo.pack(side="left", padx=5)
         self.type_combo.bind("<<ComboboxSelected>>", lambda e: self.apply_filter())
 
@@ -193,12 +200,6 @@ class MessagesTab(ttk.Frame):
         )
         self.direction_combo.pack(side="left", padx=5)
         self.direction_combo.bind("<<ComboboxSelected>>", lambda e: self.apply_filter())
-
-        ttk.Label(controls, text="Command:").pack(side="left", padx=(15, 0))
-        self.command_var = tk.StringVar(value="All")
-        self.command_combo = ttk.Combobox(controls, textvariable=self.command_var, state="readonly", width=32)
-        self.command_combo.pack(side="left", padx=5)
-        self.command_combo.bind("<<ComboboxSelected>>", lambda e: self.apply_filter())
 
         ttk.Label(controls, text="Outgoing sysid:").pack(side="left", padx=(15, 0))
         self.outgoing_sysid_var = tk.StringVar()
@@ -251,15 +252,15 @@ class MessagesTab(ttk.Frame):
 
     def on_data_loaded(self):
         data = self.app.data
-        types = ["All"] + sorted(data.by_type.keys())
-        self.type_combo["values"] = types
-        self.type_var.set("All")
-
         command_names = sorted({
             e["fields"]["command_name"] for e in data.messages if "command_name" in e["fields"]
         })
-        self.command_combo["values"] = ["All"] + command_names
-        self.command_var.set("All")
+        types = (
+            ["All"] + sorted(data.by_type.keys())
+            + [f"{COMMAND_FILTER_PREFIX}{name}" for name in command_names]
+        )
+        self.type_combo["values"] = types
+        self.type_var.set("All")
 
         self.outgoing_combo["values"] = [str(s) for s in data.sysids]
         if data.guessed_outgoing_sysid is not None:
@@ -275,7 +276,6 @@ class MessagesTab(ttk.Frame):
         self.search_var.set("")
         self.type_var.set("All")
         self.direction_var.set("All")
-        self.command_var.set("All")
         self.apply_filter()
 
     def apply_filter(self):
@@ -286,12 +286,21 @@ class MessagesTab(ttk.Frame):
         outgoing_str = self.outgoing_sysid_var.get()
         outgoing_sysid = int(outgoing_str) if outgoing_str else None
 
-        if msg_type and msg_type != "All":
+        if msg_type.startswith(COMMAND_FILTER_PREFIX):
+            command_name = msg_type[len(COMMAND_FILTER_PREFIX):]
+            entries = [e for e in data.messages if e["fields"].get("command_name") == command_name]
+            per_type_columns = False
+        elif msg_type and msg_type != "All":
             entries = data.by_type.get(msg_type, [])
+            per_type_columns = True
+        else:
+            entries = data.messages
+            per_type_columns = False
+
+        if per_type_columns:
             sample_fields = list(entries[0]["fields"].keys()) if entries else []
             columns = ["time", "sysid"] + sample_fields
         else:
-            entries = data.messages
             columns = ["time", "sysid", "type", "fields"]
 
         if search:
@@ -311,10 +320,6 @@ class MessagesTab(ttk.Frame):
             entries = [e for e in entries if direction_of(e) == "OUT"]
         elif direction_filter == "Incoming":
             entries = [e for e in entries if direction_of(e) == "IN"]
-
-        command_filter = self.command_var.get()
-        if command_filter and command_filter != "All":
-            entries = [e for e in entries if e["fields"].get("command_name") == command_filter]
 
         if self.sort_column in columns:
             def sort_key(e):
@@ -341,7 +346,7 @@ class MessagesTab(ttk.Frame):
             direction = direction_of(e)
             tag = ("outgoing",) if direction == "OUT" else ("incoming",) if direction == "IN" else ()
 
-            if msg_type != "All":
+            if per_type_columns:
                 row = [t, e["sysid"]] + [e["fields"].get(c, "") for c in columns[2:]]
             else:
                 row = [t, e["sysid"], e["type"], str(e["fields"])]
@@ -355,7 +360,14 @@ class MessagesTab(ttk.Frame):
             if c == self.sort_column:
                 heading += " ▼" if self.sort_reverse else " ▲"
             self.tree.heading(c, text=heading, command=lambda c=c: self._on_header_click(c))
-            self.tree.column(c, width=width, anchor="w")
+            # stretch=False is required for both an accurate minimal width
+            # and for horizontal scrolling to do anything: with the ttk
+            # default (stretch=True), Treeview silently re-stretches every
+            # column to exactly fill the visible frame width whenever the
+            # computed total is narrower than that, which both widens
+            # columns past their content and leaves nothing for the
+            # scrollbar/Shift+wheel to scroll into.
+            self.tree.column(c, width=width, minwidth=MIN_COLUMN_WIDTH, anchor="w", stretch=False)
 
         for row, tag in rows:
             self.tree.insert("", "end", values=row, tags=tag)
@@ -364,21 +376,17 @@ class MessagesTab(ttk.Frame):
         self.count_label.config(text=f"{len(entries)} messages{note}")
 
     def _compute_column_widths(self, columns, rows):
-        """Minimal width per column that fits its header and a sample of
-        its cell text, clamped to [MIN_COLUMN_WIDTH, MAX_COLUMN_WIDTH].
-        Sampling (rather than every row) keeps this cheap on large logs;
-        anything a column ends up too narrow for is still reachable via
-        the horizontal scrollbar / Shift+wheel."""
+        """Exact width per column that fits its header and every currently
+        shown row's text for that column (floored at MIN_COLUMN_WIDTH)."""
         font = tkfont.nametofont("TkDefaultFont")
-        sample = rows[:COLUMN_WIDTH_SAMPLE_ROWS]
         widths = []
         for i, c in enumerate(columns):
             width = font.measure(str(c)) + COLUMN_HEADER_PAD
-            for row, _tag in sample:
+            for row, _tag in rows:
                 cell_width = font.measure(str(row[i])) + COLUMN_CELL_PAD
                 if cell_width > width:
                     width = cell_width
-            widths.append(min(max(width, MIN_COLUMN_WIDTH), MAX_COLUMN_WIDTH))
+            widths.append(max(width, MIN_COLUMN_WIDTH))
         return widths
 
     def _on_header_click(self, col):

@@ -43,15 +43,19 @@ Open it from the app with **Open tlog...**.
   the window stays responsive; the status bar shows the message count,
   number of distinct message types, and time span once done.
 - **Messages tab**
-  - Filter the table by message type (dropdown, populated from what's in
-    the loaded log).
+  - Filter the table by message type (**Type** dropdown, populated from
+    what's in the loaded log). Every distinct decoded MAVLink command seen
+    in the log (see "Command names as text" below) is listed in the same
+    dropdown as a "Command: ..." entry, so filtering to one specific
+    command (e.g. "Command: Nav Takeoff") is just another Type selection.
   - Free-text search across all field values (case-insensitive substring
     match), combinable with the type filter.
   - Table columns adapt to the selected message type's fields, and each
-    column auto-sizes to the minimal width that fits its header and
-    content (capped so one huge value can't blow up the whole table) —
-    drag the horizontal scrollbar, or hold Shift and scroll the mouse
-    wheel over the table, to read anything still cut off.
+    column is sized to exactly fit its header and content, with no
+    stretching to fill the window — so the table scrolls horizontally
+    (drag the scrollbar, or hold Shift and scroll the mouse wheel over the
+    table) for anything wider than the visible area, rather than
+    truncating it.
   - **Incoming/outgoing coloring and filtering** — rows are colored by
     direction, based on which sysid you tell it is "yours" via the
     **Outgoing sysid** dropdown (auto-guessed on load: prefers a
@@ -64,14 +68,12 @@ Open it from the app with **Open tlog...**.
     the decoded flight mode name (e.g. `STABILIZE`, `AUTO`, `RTL`) instead
     of just the raw `custom_mode` number; it's also searchable like any
     other field.
-  - **Command names as text and a Command filter** — any row with a
-    `command` field (`COMMAND_LONG`, `COMMAND_INT`, `COMMAND_ACK`,
-    `MISSION_ITEM`, ...) gets a `command_name` column with a readable
-    label (e.g. `MAV_CMD_NAV_TAKEOFF` shows as "Nav Takeoff") instead of
-    just the raw numeric id. The **Command** dropdown (wide enough to show
-    full names) lists every distinct command seen in the log and filters
-    the table down to just that command, combinable with the other
-    filters and search.
+  - **Command names as text** — any row with a `command` field
+    (`COMMAND_LONG`, `COMMAND_INT`, `COMMAND_ACK`, `MISSION_ITEM`, ...)
+    gets a `command_name` column with a readable label (e.g.
+    `MAV_CMD_NAV_TAKEOFF` shows as "Nav Takeoff") instead of just the raw
+    numeric id; searchable like any other field, and filterable via the
+    Type dropdown as described above.
   - **Sort by clicking a column header** — click again to reverse. Sorting
     combines with whatever filters are active.
   - **Copy values** — select row(s) and press Ctrl+C, or right-click for
