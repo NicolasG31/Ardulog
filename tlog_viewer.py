@@ -25,7 +25,13 @@ MAX_TABLE_ROWS = 20000
 
 
 class TlogData:
-    """Holds messages decoded from a single tlog file."""
+    """Holds messages decoded from a single tlog file.
+
+    HEARTBEAT entries get a synthetic "mode" field (human-readable flight
+    mode name, e.g. "STABILIZE") added to `fields` via
+    `mavutil.mode_string_v10`, so it shows up as a normal column/search
+    target alongside the raw `custom_mode` integer.
+    """
 
     def __init__(self):
         self.messages = []        # list of {"time", "type", "fields", "sysid", "compid"}
@@ -52,6 +58,11 @@ class TlogData:
                 continue
 
             fields = {k: v for k, v in msg.to_dict().items() if k not in SKIP_FIELDS}
+            if msg_type == "HEARTBEAT":
+                try:
+                    fields["mode"] = mavutil.mode_string_v10(msg)
+                except Exception:
+                    fields["mode"] = str(fields.get("custom_mode", ""))
             sysid = msg.get_srcSystem()
             entry = {
                 "time": ts, "type": msg_type, "fields": fields,
@@ -103,12 +114,18 @@ INCOMING_BG = "#ffe3cf"
 class MessagesTab(ttk.Frame):
     """Filterable table of decoded messages, colored by direction (incoming
     from the vehicle vs outgoing from the GCS, inferred from sysid), with
-    row/cell copy support."""
+    row/cell copy support. Direction can also be filtered explicitly
+    (All/Outgoing/Incoming) via a dropdown. Clicking a column header sorts
+    the table by that column (click again to reverse); HEARTBEAT rows get
+    a synthetic "mode" field showing the flight mode as plain text (e.g.
+    "STABILIZE") instead of just the raw custom_mode integer."""
 
     def __init__(self, parent, app):
         super().__init__(parent)
         self.app = app
         self._context_click_pos = None
+        self.sort_column = None
+        self.sort_reverse = False
         self._build()
 
     def _build(self):
@@ -128,6 +145,15 @@ class MessagesTab(ttk.Frame):
         search_entry.bind("<Return>", lambda e: self.apply_filter())
         ttk.Button(controls, text="Filter", command=self.apply_filter).pack(side="left")
         ttk.Button(controls, text="Clear", command=self.clear_filter).pack(side="left", padx=5)
+
+        ttk.Label(controls, text="Direction:").pack(side="left", padx=(15, 0))
+        self.direction_var = tk.StringVar(value="All")
+        self.direction_combo = ttk.Combobox(
+            controls, textvariable=self.direction_var, state="readonly",
+            width=10, values=["All", "Outgoing", "Incoming"],
+        )
+        self.direction_combo.pack(side="left", padx=5)
+        self.direction_combo.bind("<<ComboboxSelected>>", lambda e: self.apply_filter())
 
         ttk.Label(controls, text="Outgoing sysid:").pack(side="left", padx=(15, 0))
         self.outgoing_sysid_var = tk.StringVar()
@@ -187,6 +213,7 @@ class MessagesTab(ttk.Frame):
     def clear_filter(self):
         self.search_var.set("")
         self.type_var.set("All")
+        self.direction_var.set("All")
         self.apply_filter()
 
     def apply_filter(self):
@@ -212,21 +239,51 @@ class MessagesTab(ttk.Frame):
                 return any(search in str(v).lower() for v in e["fields"].values())
             entries = [e for e in entries if matches(e)]
 
+        def direction_of(e):
+            if outgoing_sysid is None:
+                return "?"
+            return "OUT" if e["sysid"] == outgoing_sysid else "IN"
+
+        direction_filter = self.direction_var.get()
+        if direction_filter == "Outgoing":
+            entries = [e for e in entries if direction_of(e) == "OUT"]
+        elif direction_filter == "Incoming":
+            entries = [e for e in entries if direction_of(e) == "IN"]
+
+        if self.sort_column in columns:
+            def sort_key(e):
+                if self.sort_column == "time":
+                    return e["time"]
+                if self.sort_column == "dir":
+                    return direction_of(e)
+                if self.sort_column == "sysid":
+                    return e["sysid"]
+                if self.sort_column == "type":
+                    return e["type"]
+                if self.sort_column == "fields":
+                    return str(e["fields"])
+                return e["fields"].get(self.sort_column, "")
+            try:
+                entries = sorted(entries, key=sort_key, reverse=self.sort_reverse)
+            except TypeError:
+                entries = sorted(entries, key=lambda e: str(sort_key(e)), reverse=self.sort_reverse)
+        else:
+            self.sort_column = None
+
         self.tree.delete(*self.tree.get_children())
         self.tree["columns"] = columns
         for c in columns:
-            self.tree.heading(c, text=c)
+            heading = c
+            if c == self.sort_column:
+                heading += " ▼" if self.sort_reverse else " ▲"
+            self.tree.heading(c, text=heading, command=lambda c=c: self._on_header_click(c))
             self.tree.column(c, width=120 if c not in ("dir", "sysid") else 60, anchor="w")
 
         shown = entries[:MAX_TABLE_ROWS]
         for e in shown:
             t = datetime.fromtimestamp(e["time"]).strftime("%H:%M:%S.%f")[:-3]
-            if outgoing_sysid is None:
-                direction, tag = "?", ()
-            elif e["sysid"] == outgoing_sysid:
-                direction, tag = "OUT", ("outgoing",)
-            else:
-                direction, tag = "IN", ("incoming",)
+            direction = direction_of(e)
+            tag = ("outgoing",) if direction == "OUT" else ("incoming",) if direction == "IN" else ()
 
             if msg_type != "All":
                 row = [t, direction, e["sysid"]] + [e["fields"].get(c, "") for c in columns[3:]]
@@ -236,6 +293,14 @@ class MessagesTab(ttk.Frame):
 
         note = "" if len(entries) <= MAX_TABLE_ROWS else f" (showing first {MAX_TABLE_ROWS})"
         self.count_label.config(text=f"{len(entries)} messages{note}")
+
+    def _on_header_click(self, col):
+        if self.sort_column == col:
+            self.sort_reverse = not self.sort_reverse
+        else:
+            self.sort_column = col
+            self.sort_reverse = False
+        self.apply_filter()
 
     def _show_context_menu(self, event):
         row_id = self.tree.identify_row(event.y)

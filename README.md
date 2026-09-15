@@ -32,8 +32,10 @@ circuit cruise, descent) with two simulated sysids: the vehicle (1, sending
 `COMMAND_LONG` — arm, takeoff, land) — enough variety to try filtering,
 searching, plotting (e.g. add `ATTITUDE.roll` and `ATTITUDE.pitch` as
 series, or compare `GLOBAL_POSITION_INT.alt` against `VFR_HUD.alt`), and
-the incoming/outgoing coloring described below. Open it from the app with
-**Open tlog...**.
+the incoming/outgoing filtering/coloring described below. The vehicle's
+`HEARTBEAT` mode also walks through a coherent flight: `STABILIZE` (armed,
+on the ground) → `GUIDED` (climb) → `AUTO` (cruise) → `RTL` → `LAND`.
+Open it from the app with **Open tlog...**.
 
 ## Features
 
@@ -46,12 +48,21 @@ the incoming/outgoing coloring described below. Open it from the app with
   - Free-text search across all field values (case-insensitive substring
     match), combinable with the type filter.
   - Table columns adapt to the selected message type's fields.
-  - **Incoming/outgoing coloring** — rows are colored by direction, based
-    on which sysid you tell it is "yours" via the **Outgoing sysid**
-    dropdown (auto-guessed on load: prefers a `HEARTBEAT` explicitly typed
-    `MAV_TYPE_GCS`, otherwise the higher of exactly two sysids seen).
-    Change the dropdown if the guess is wrong. A `dir`/`sysid` column pair
-    also shows this as text (`OUT`/`IN`), not just color.
+  - **Incoming/outgoing coloring and filtering** — rows are colored by
+    direction, based on which sysid you tell it is "yours" via the
+    **Outgoing sysid** dropdown (auto-guessed on load: prefers a
+    `HEARTBEAT` explicitly typed `MAV_TYPE_GCS`, otherwise the higher of
+    exactly two sysids seen). Change the dropdown if the guess is wrong. A
+    `dir`/`sysid` column pair also shows this as text (`OUT`/`IN`), not
+    just color. The **Direction** dropdown (All/Outgoing/Incoming) filters
+    the table down to just one direction, combinable with the type filter
+    and search.
+  - **Flight mode as text** — `HEARTBEAT` rows get a `mode` column showing
+    the decoded flight mode name (e.g. `STABILIZE`, `AUTO`, `RTL`) instead
+    of just the raw `custom_mode` number; it's also searchable like any
+    other field.
+  - **Sort by clicking a column header** — click again to reverse. Sorting
+    combines with whatever filters are active.
   - **Copy values** — select row(s) and press Ctrl+C, or right-click for
     **Copy row(s)** (tab-separated, with a header row) / **Copy cell**
     (right-click near the cell you want) — pastes straight into a

@@ -19,17 +19,29 @@ just a fast decode-and-look tool.
     list), `by_type` (dict of type → entries), `numeric_fields` (dict of
     type → sorted numeric field names, computed from the first sample of
     each type — assumes a type's fields are homogeneous across a log).
+    `HEARTBEAT` entries get a synthetic `mode` field added to `fields`
+    (human-readable flight mode, e.g. `"STABILIZE"`, via
+    `mavutil.mode_string_v10(msg)` called on the live decoded message
+    before it's discarded) — not part of the wire format, purely a display
+    convenience alongside the raw `custom_mode` int.
   - `MessagesTab` — Treeview table, filter by message type + free-text
-    search across all field values (substring, case-insensitive). Caps
-    display at `MAX_TABLE_ROWS = 20000` for perf; full data is still in
-    memory, just not rendered. Rows are colored by direction (`outgoing`/
-    `incoming` Treeview tags → `OUTGOING_BG`/`INCOMING_BG`) based on
-    comparing each entry's `sysid` to the **Outgoing sysid** dropdown
+    search across all field values (substring, case-insensitive), plus a
+    **Direction** dropdown (All/Outgoing/Incoming) that filters on the same
+    direction logic used for row coloring (see below). Caps display at
+    `MAX_TABLE_ROWS = 20000` for perf; full data is still in memory, just
+    not rendered. Rows are colored by direction (`outgoing`/`incoming`
+    Treeview tags → `OUTGOING_BG`/`INCOMING_BG`) based on comparing each
+    entry's `sysid` to the **Outgoing sysid** dropdown
     (`outgoing_sysid_var`); a `dir`/`sysid` column pair also renders this
-    as text so it's not color-only. Ctrl+C or right-click → **Copy row(s)**
-    copies the current Treeview selection as tab-separated text (header +
-    rows) to the clipboard; right-click → **Copy cell** copies just the
-    cell under the click (via `tree.identify_row`/`identify_column`).
+    as text so it's not color-only. Clicking a column header sorts the
+    table by that column (`sort_column`/`sort_reverse` state, applied in
+    `apply_filter` after type/search/direction filtering, before the
+    `MAX_TABLE_ROWS` slice); click again to reverse; switching to a message
+    type whose columns don't include the current sort column clears it.
+    Ctrl+C or right-click → **Copy row(s)** copies the current Treeview
+    selection as tab-separated text (header + rows) to the clipboard;
+    right-click → **Copy cell** copies just the cell under the click (via
+    `tree.identify_row`/`identify_column`).
   - `PlotTab` — pick type+field, "Add series" to a list, "Plot" draws all
     added series on one matplotlib chart (`FigureCanvasTkAgg` + nav
     toolbar), x-axis is wall-clock time from each message's `_timestamp`.
@@ -43,10 +55,17 @@ just a fast decode-and-look tool.
   `GLOBAL_POSITION_INT`, `ATTITUDE`, `VFR_HUD`, `PARAM_VALUE`) and a GCS
   (255: `HEARTBEAT` typed `MAV_TYPE_GCS`, `PARAM_REQUEST_LIST`, a few
   `COMMAND_LONG`) — the two sysids exist specifically so the
-  incoming/outgoing coloring feature has real bidirectional data to show.
-  Used for demoing/testing the viewer without a real flight log; contains
-  the canonical `TimestampedFile` wrapper (see below) — reuse it rather
-  than re-deriving.
+  incoming/outgoing coloring/filtering feature has real bidirectional data
+  to show. The vehicle's `HEARTBEAT` sends a phase-matched ArduCopter
+  `custom_mode` via `flight_mode(t)` (`STABILIZE` armed-on-ground → climb
+  `GUIDED` → cruise `AUTO` → `RTL` → `LAND`, timed to line up with the
+  `gcs_commands` arm/takeoff/land) with `base_mode`'s
+  `MAV_MODE_FLAG_CUSTOM_MODE_ENABLED` bit set (required for
+  `mavutil.mode_string_v10` to decode it instead of falling back to
+  `Mode(0x...)`) — exists so the viewer's `mode`-as-text column has
+  something real to show. Used for demoing/testing the viewer without a
+  real flight log; contains the canonical `TimestampedFile` wrapper (see
+  below) — reuse it rather than re-deriving.
 - `sample_flight.tlog` — generated output, not hand-maintained; regenerate
   with `python generate_sample_tlog.py` if the generator changes.
 - `requirements.txt` — `pymavlink`, `matplotlib`.

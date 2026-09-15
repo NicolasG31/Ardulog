@@ -69,6 +69,23 @@ def flight_profile(t):
     return alt, roll, pitch, yaw % (2 * math.pi), lat, lon, gs
 
 
+def flight_mode(t):
+    """ArduCopter custom_mode number for simulated time t, matching the
+    climb/cruise/descent phases in flight_profile and the gcs_commands arm/
+    takeoff/land timings below, so HEARTBEAT's mode field tells a coherent
+    story (STABILIZE on the ground -> GUIDED climb -> AUTO cruise -> RTL ->
+    LAND)."""
+    if t < 3:
+        return 0   # STABILIZE, armed on the ground before takeoff
+    if t < 20:
+        return 4   # GUIDED, climbing out
+    if t < 90:
+        return 3   # AUTO, cruising the circuit
+    if t < 110:
+        return 6   # RTL, heading home
+    return 9       # LAND
+
+
 def main():
     start_time = time.time() - DURATION_S  # log appears to end "now"
     tsf = TimestampedFile(OUTPUT_PATH, start_time)
@@ -133,10 +150,13 @@ def main():
         voltage = int(voltage_start + (voltage_end - voltage_start) * (t / DURATION_S))
 
         if t >= next_due["heartbeat"]:
+            base_mode = mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED
+            if t >= 1.0:  # armed by the ARM_DISARM command below
+                base_mode |= mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED
             mav.heartbeat_send(
                 mavutil.mavlink.MAV_TYPE_QUADROTOR,
                 mavutil.mavlink.MAV_AUTOPILOT_ARDUPILOTMEGA,
-                0, 0, mavutil.mavlink.MAV_STATE_ACTIVE,
+                base_mode, flight_mode(t), mavutil.mavlink.MAV_STATE_ACTIVE,
             )
             next_due["heartbeat"] += periods["heartbeat"]
 
