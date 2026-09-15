@@ -47,20 +47,27 @@ Open it from the app with **Open tlog...**.
     the loaded log).
   - Free-text search across all field values (case-insensitive substring
     match), combinable with the type filter.
-  - Table columns adapt to the selected message type's fields.
+  - Table columns adapt to the selected message type's fields; the `type`
+    column (shown in the "All" view) is widened so full message type names
+    are readable without resizing.
   - **Incoming/outgoing coloring and filtering** — rows are colored by
     direction, based on which sysid you tell it is "yours" via the
     **Outgoing sysid** dropdown (auto-guessed on load: prefers a
     `HEARTBEAT` explicitly typed `MAV_TYPE_GCS`, otherwise the higher of
-    exactly two sysids seen). Change the dropdown if the guess is wrong. A
-    `dir`/`sysid` column pair also shows this as text (`OUT`/`IN`), not
-    just color. The **Direction** dropdown (All/Outgoing/Incoming) filters
-    the table down to just one direction, combinable with the type filter
-    and search.
+    exactly two sysids seen). Change the dropdown if the guess is wrong.
+    The **Direction** dropdown (All/Outgoing/Incoming) filters the table
+    down to just one direction, combinable with the type filter and
+    search.
   - **Flight mode as text** — `HEARTBEAT` rows get a `mode` column showing
     the decoded flight mode name (e.g. `STABILIZE`, `AUTO`, `RTL`) instead
     of just the raw `custom_mode` number; it's also searchable like any
     other field.
+  - **Command names as text** — any row with a `command` field
+    (`COMMAND_LONG`, `COMMAND_INT`, `COMMAND_ACK`, `MISSION_ITEM`, ...)
+    gets a `command_name` column showing the decoded `MAV_CMD_*` name
+    (e.g. `MAV_CMD_NAV_TAKEOFF`) instead of just the raw numeric id;
+    filter to a command type and/or search for a command name to find
+    specific commands.
   - **Sort by clicking a column header** — click again to reverse. Sorting
     combines with whatever filters are active.
   - **Copy values** — select row(s) and press Ctrl+C, or right-click for

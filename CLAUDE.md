@@ -23,7 +23,12 @@ just a fast decode-and-look tool.
     (human-readable flight mode, e.g. `"STABILIZE"`, via
     `mavutil.mode_string_v10(msg)` called on the live decoded message
     before it's discarded) — not part of the wire format, purely a display
-    convenience alongside the raw `custom_mode` int.
+    convenience alongside the raw `custom_mode` int. Any entry whose
+    `fields` has an int `command` key (`COMMAND_LONG`, `COMMAND_INT`,
+    `COMMAND_ACK`, `MISSION_ITEM`, ...) similarly gets a synthetic
+    `command_name` field looked up from `mavutil.mavlink.enums["MAV_CMD"]`
+    (module-level `MAV_CMD_ENUM`), falling back to `f"MAV_CMD({id})"` for
+    an unrecognized id.
   - `MessagesTab` — Treeview table, filter by message type + free-text
     search across all field values (substring, case-insensitive), plus a
     **Direction** dropdown (All/Outgoing/Incoming) that filters on the same
@@ -32,16 +37,19 @@ just a fast decode-and-look tool.
     not rendered. Rows are colored by direction (`outgoing`/`incoming`
     Treeview tags → `OUTGOING_BG`/`INCOMING_BG`) based on comparing each
     entry's `sysid` to the **Outgoing sysid** dropdown
-    (`outgoing_sysid_var`); a `dir`/`sysid` column pair also renders this
-    as text so it's not color-only. Clicking a column header sorts the
-    table by that column (`sort_column`/`sort_reverse` state, applied in
-    `apply_filter` after type/search/direction filtering, before the
-    `MAX_TABLE_ROWS` slice); click again to reverse; switching to a message
-    type whose columns don't include the current sort column clears it.
-    Ctrl+C or right-click → **Copy row(s)** copies the current Treeview
-    selection as tab-separated text (header + rows) to the clipboard;
-    right-click → **Copy cell** copies just the cell under the click (via
-    `tree.identify_row`/`identify_column`).
+    (`outgoing_sysid_var`) — color is the only direction indicator in the
+    row itself (no separate `dir` text column; removed as redundant with
+    color plus the Direction filter). The `type` column (in the "All"
+    view) is fixed at width 200 (vs. 120 default, 60 for `sysid`) so full
+    message type names are readable without manual resizing. Clicking a
+    column header sorts the table by that column (`sort_column`/
+    `sort_reverse` state, applied in `apply_filter` after type/search/
+    direction filtering, before the `MAX_TABLE_ROWS` slice); click again to
+    reverse; switching to a message type whose columns don't include the
+    current sort column clears it. Ctrl+C or right-click → **Copy row(s)**
+    copies the current Treeview selection as tab-separated text (header +
+    rows) to the clipboard; right-click → **Copy cell** copies just the
+    cell under the click (via `tree.identify_row`/`identify_column`).
   - `PlotTab` — pick type+field, "Add series" to a list, "Plot" draws all
     added series on one matplotlib chart (`FigureCanvasTkAgg` + nav
     toolbar), x-axis is wall-clock time from each message's `_timestamp`.

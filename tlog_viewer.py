@@ -22,6 +22,7 @@ from pymavlink import mavutil
 NUMERIC_TYPES = (int, float)
 SKIP_FIELDS = {"mavpackettype"}
 MAX_TABLE_ROWS = 20000
+MAV_CMD_ENUM = mavutil.mavlink.enums.get("MAV_CMD", {})
 
 
 class TlogData:
@@ -30,7 +31,10 @@ class TlogData:
     HEARTBEAT entries get a synthetic "mode" field (human-readable flight
     mode name, e.g. "STABILIZE") added to `fields` via
     `mavutil.mode_string_v10`, so it shows up as a normal column/search
-    target alongside the raw `custom_mode` integer.
+    target alongside the raw `custom_mode` integer. Any entry with a
+    "command" field (COMMAND_LONG, COMMAND_INT, COMMAND_ACK, MISSION_ITEM,
+    ...) gets a synthetic "command_name" field (e.g. "MAV_CMD_NAV_TAKEOFF")
+    looked up from the MAV_CMD enum, alongside the raw numeric id.
     """
 
     def __init__(self):
@@ -63,6 +67,10 @@ class TlogData:
                     fields["mode"] = mavutil.mode_string_v10(msg)
                 except Exception:
                     fields["mode"] = str(fields.get("custom_mode", ""))
+            cmd_id = fields.get("command")
+            if isinstance(cmd_id, int):
+                cmd_enum = MAV_CMD_ENUM.get(cmd_id)
+                fields["command_name"] = cmd_enum.name if cmd_enum else f"MAV_CMD({cmd_id})"
             sysid = msg.get_srcSystem()
             entry = {
                 "time": ts, "type": msg_type, "fields": fields,
@@ -113,12 +121,15 @@ INCOMING_BG = "#ffe3cf"
 
 class MessagesTab(ttk.Frame):
     """Filterable table of decoded messages, colored by direction (incoming
-    from the vehicle vs outgoing from the GCS, inferred from sysid), with
+    from the vehicle vs outgoing from the GCS, inferred from sysid; no
+    separate text column since the color already encodes it), with
     row/cell copy support. Direction can also be filtered explicitly
     (All/Outgoing/Incoming) via a dropdown. Clicking a column header sorts
     the table by that column (click again to reverse); HEARTBEAT rows get
     a synthetic "mode" field showing the flight mode as plain text (e.g.
-    "STABILIZE") instead of just the raw custom_mode integer."""
+    "STABILIZE") instead of just the raw custom_mode integer, and any row
+    with a "command" field (COMMAND_LONG, COMMAND_INT, COMMAND_ACK, ...)
+    gets a synthetic "command_name" field (e.g. "MAV_CMD_NAV_TAKEOFF")."""
 
     def __init__(self, parent, app):
         super().__init__(parent)
@@ -227,10 +238,10 @@ class MessagesTab(ttk.Frame):
         if msg_type and msg_type != "All":
             entries = data.by_type.get(msg_type, [])
             sample_fields = list(entries[0]["fields"].keys()) if entries else []
-            columns = ["time", "dir", "sysid"] + sample_fields
+            columns = ["time", "sysid"] + sample_fields
         else:
             entries = data.messages
-            columns = ["time", "dir", "sysid", "type", "fields"]
+            columns = ["time", "sysid", "type", "fields"]
 
         if search:
             def matches(e):
@@ -254,8 +265,6 @@ class MessagesTab(ttk.Frame):
             def sort_key(e):
                 if self.sort_column == "time":
                     return e["time"]
-                if self.sort_column == "dir":
-                    return direction_of(e)
                 if self.sort_column == "sysid":
                     return e["sysid"]
                 if self.sort_column == "type":
@@ -277,7 +286,13 @@ class MessagesTab(ttk.Frame):
             if c == self.sort_column:
                 heading += " ▼" if self.sort_reverse else " ▲"
             self.tree.heading(c, text=heading, command=lambda c=c: self._on_header_click(c))
-            self.tree.column(c, width=120 if c not in ("dir", "sysid") else 60, anchor="w")
+            if c == "sysid":
+                width = 60
+            elif c == "type":
+                width = 200
+            else:
+                width = 120
+            self.tree.column(c, width=width, anchor="w")
 
         shown = entries[:MAX_TABLE_ROWS]
         for e in shown:
@@ -286,9 +301,9 @@ class MessagesTab(ttk.Frame):
             tag = ("outgoing",) if direction == "OUT" else ("incoming",) if direction == "IN" else ()
 
             if msg_type != "All":
-                row = [t, direction, e["sysid"]] + [e["fields"].get(c, "") for c in columns[3:]]
+                row = [t, e["sysid"]] + [e["fields"].get(c, "") for c in columns[2:]]
             else:
-                row = [t, direction, e["sysid"], e["type"], str(e["fields"])]
+                row = [t, e["sysid"], e["type"], str(e["fields"])]
             self.tree.insert("", "end", values=row, tags=tag)
 
         note = "" if len(entries) <= MAX_TABLE_ROWS else f" (showing first {MAX_TABLE_ROWS})"
